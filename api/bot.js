@@ -31,7 +31,9 @@ function token() {
 }
 
 function adminChatId() {
-  return process.env.ADMIN_CHAT_ID || "";
+  let v = process.env.ADMIN_CHAT_ID || "";
+  v = String(v).trim().replace(/^["']|["']$/g, "");
+  return v;
 }
 
 function webhookPublicUrl() {
@@ -316,6 +318,10 @@ async function finishBooking(chatId, session, from) {
   try {
     await sendMessage(admin, text);
   } catch (err) {
+    console.error("admin notify failed", {
+      adminId: String(admin).slice(0, 24),
+      error: String((err && err.message) || err),
+    });
     await sendMessage(
       chatId,
       "Не удалось отправить запись администратору. Попробуйте позже.",
@@ -483,11 +489,32 @@ module.exports = async function handler(req, res) {
         allowed_updates: ["message", "callback_query"],
         drop_pending_updates: false,
       });
+      const admin = adminChatId();
+      const adminLooksNumeric = /^-?\d+$/.test(admin);
+      let adminChat = null;
+      let adminError = null;
+      if (admin && adminLooksNumeric) {
+        try {
+          adminChat = await tg("getChat", { chat_id: admin });
+        } catch (e) {
+          adminError = String((e && e.message) || e);
+        }
+      }
       return res.status(200).json({
         ok: true,
         webhook: url,
         telegram: result,
-        hasAdmin: Boolean(adminChatId()),
+        hasAdmin: Boolean(admin),
+        adminLooksNumeric,
+        adminChatOk: Boolean(adminChat && adminChat.ok),
+        adminError: adminError || undefined,
+        hint: !admin
+          ? "Set ADMIN_CHAT_ID"
+          : !adminLooksNumeric
+            ? "ADMIN_CHAT_ID must be numeric chat id"
+            : adminError
+              ? "Open @servregistration_bot as admin and press /start; check ADMIN_CHAT_ID"
+              : "ok",
       });
     } catch (err) {
       return res.status(500).json({
